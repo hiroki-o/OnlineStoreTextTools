@@ -1,5 +1,13 @@
 #!/usr/bin/python
 #
+# Copyright (C) 2012 Unity Technologies Japan, G.K.
+#
+# This script uses gdata-python-client
+#  http://code.google.com/p/gdata-python-client/
+#
+# ------------------------
+# code based on:
+#
 # Copyright (C) 2007 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -61,6 +69,10 @@ class StoreLicenseInfo:
 		self.platform = {}
 		self.notes = {}
 
+		for key in StoreLicenseInfo.knownPlatforms:
+			self.platform[key] = False
+			self.notes[key] = ''
+
 	def showInfo(self):
 		print '------------------------'
 		print 'title={0}'.format(self.title).encode(g_charcode)
@@ -69,14 +81,14 @@ class StoreLicenseInfo:
 		print 'platform={0}'.format(self.platform).encode(g_charcode)
 		print 'notes={0}'.format(self.notes).encode(g_charcode)
 
-  # {
-  #   "title"       : "Physics",
-  #   "description" : "Bring your interactions to life with the built-in NVIDIA PhysX&trade; physics engine. <a href='http://unity3d.com/unity/engine/physics'>Read more</a>",
-  #   "category"    : "general",
-  #   "platform"    : ["check ","check ","check ","check ","check ","check ","check ","check "],
-  #   "notes"       : ["&nbsp;","&nbsp;","&nbsp;","&nbsp;","&nbsp;","&nbsp;","&nbsp;","&nbsp;"]
-  # },
-
+	# JSON expression of StoreLicenseInfo
+	# {
+	#   "title"       : "Physics",
+	#   "description" : "Bring your interactions to ... <a href='http://unity3d.com/unity/engine/physics'>Read more</a>",
+	#   "category"    : "general",
+	#   "platform"    : ["check ","check ","check ","check ","check ","check ","check ","check "],
+	#   "notes"       : ["&nbsp;","&nbsp;","&nbsp;","&nbsp;","&nbsp;","&nbsp;","&nbsp;","&nbsp;"]
+	# },
 	def JSONExpression(self):
 		uTitleDesc = self._JSONExpression_localizedTitleDescription()
 		uPlatform = self._JSONExpression_platform()
@@ -94,7 +106,7 @@ class StoreLicenseInfo:
 		out_string = u''
 		keys = self.title.keys()
 		for key in keys:
-			if key is self.default_locale:
+			if key == self.default_locale:
 				out_string += u'"title" : "{0}",'.format(self.title[key])
 				out_string += u'"description" : "{0}"'.format(
 					self.description[key])
@@ -103,7 +115,7 @@ class StoreLicenseInfo:
 					key, self.title[key])
 				out_string += u'"description_{0}" : "{1}"'.format(
 					key, self.description[key])
-			if key is not keys[-1]:
+			if key != keys[-1]:
 				out_string += u','
 		return out_string
 
@@ -112,7 +124,7 @@ class StoreLicenseInfo:
 		for key in StoreLicenseInfo.knownPlatforms:
 			check = u"check" if self.platform[key] else u""
 			out_string += u'"{0}"'.format(check)
-			if key is not StoreLicenseInfo.knownPlatforms[-1]:
+			if key != StoreLicenseInfo.knownPlatforms[-1]:
 				out_string += u','
 		return out_string
 
@@ -121,7 +133,7 @@ class StoreLicenseInfo:
 		for key in StoreLicenseInfo.knownPlatforms:
 			note = self.notes[key]
 			out_string += u'"{0}"'.format(note)
-			if key is not StoreLicenseInfo.knownPlatforms[-1]:
+			if key != StoreLicenseInfo.knownPlatforms[-1]:
 				out_string += u','
 		return out_string
 
@@ -140,7 +152,7 @@ class StoreLicenseParser:
 		self.doc_key = doc_key
 		self.curr_wksht_id = 'default'
 		self.list_feed = None
-		self.knownSheets = ['default', 'notes', 'platform']
+		self.knownSheets = ['default', 'notes', 'platform', 'how to use']
 		self.sheets = {}  # name:id dictionary of each sheets
 		self.features = {}  # all values representation
 		# login and get all necessary information from spreadsheet on google
@@ -179,7 +191,12 @@ class StoreLicenseParser:
 	def _ParseDefaultSheet(self):
 		feed = self.gd_client.GetListFeed(self.doc_key, self.sheets['default'])
 
+		if not isinstance(feed, gdata.spreadsheet.SpreadsheetsListFeed):
+			print "Error: feed is not SpreadsheetsListFeed."
+			return
+
 		for i, entry in enumerate(feed.entry):
+			obj = StoreLicenseInfo()
 			for key in entry.custom:
 				s = unicode(entry.custom[key].text)
 				if key == 'title':
@@ -188,30 +205,34 @@ class StoreLicenseParser:
 					obj.description[StoreLicenseInfo.default_locale] = s
 				elif key == 'category':
 					obj.category = s
-		self.features[obj.title[StoreLicenseInfo.default_locale]] = obj
+			self.features[ obj.title[StoreLicenseInfo.default_locale] ] = obj
 
 	#
 	# takes care of platform checksheet
 	#
 	def _ParsePlatformSheet(self):
-		feed = self.gd_client.GetListFeed(
-			self.doc_key, self.sheets['platform'])
+		feed = self.gd_client.GetListFeed(self.doc_key, self.sheets['platform'])
+
+		if not isinstance(feed, gdata.spreadsheet.SpreadsheetsListFeed):
+			print "Error: feed is not SpreadsheetsListFeed."
+			return
 
 		for i, entry in enumerate(feed.entry):
 			ref_title = ''
 			plaf_dic = {}
 
 			for key in entry.custom:
-				s = unicode(entry.custom[key].text.strip())
+				s = unicode(entry.custom[key].text)
 				if key == 'ref-title':
 					ref_title = s
 				else:
-					plaf_dic[key] = (s == 'check')
+					plaf_dic[key] = (s.strip() == 'check')
 
 			try:
 				obj = self.features[ref_title]
 				obj.platform = plaf_dic
 			except KeyError:
+				print 'ParsePlatform: {0} not found.'.format(ref_title)
 				pass
 
 	#
@@ -219,6 +240,10 @@ class StoreLicenseParser:
 	#
 	def _ParseNotesSheet(self):
 		feed = self.gd_client.GetListFeed(self.doc_key, self.sheets['notes'])
+
+		if not isinstance(feed, gdata.spreadsheet.SpreadsheetsListFeed):
+			print "Error: feed is not SpreadsheetsListFeed."
+			return
 
 		for i, entry in enumerate(feed.entry):
 			ref_title = ''
@@ -235,6 +260,7 @@ class StoreLicenseParser:
 				obj = self.features[ref_title]
 				obj.notes = note_dic
 			except KeyError:
+				print 'ParseNote: {0} not found.'.format(ref_title)
 				pass
 
 	#
@@ -242,6 +268,10 @@ class StoreLicenseParser:
 	#
 	def _ParseLocalizedSheet(self, lang):
 		feed = self.gd_client.GetListFeed(self.doc_key, self.sheets[lang])
+
+		if not isinstance(feed, gdata.spreadsheet.SpreadsheetsListFeed):
+			print "Error: feed is not SpreadsheetsListFeed."
+			return
 
 		for i, entry in enumerate(feed.entry):
 			ref_title = ''
@@ -262,6 +292,7 @@ class StoreLicenseParser:
 				obj.title[lang] = localized_title
 				obj.description[lang] = localized_desc
 			except KeyError:
+				print 'ParseLocalized: {0} for {1} not found.'.format(ref_title, lang)
 				pass
 
 	#
@@ -308,12 +339,12 @@ class StoreLicenseParser:
 					# if none of known keys, try find localized title/desc
 					search_localized_title = pattern_title.search(key)
 					if search_localized_title:
-						locale = search_localized_title.group(0)
+						locale = search_localized_title.groups(0)[0]
 						obj.title[locale] = feature[key]
 					else:
 						search_localized_desc = pattern_desc.search(key)
 						if search_localized_desc:
-							locale = search_localized_desc.group(0)
+							locale = search_localized_desc.groups(0)[0]
 							obj.description[locale] = feature[key]
 
 			self.features[feature['title']] = obj
@@ -334,7 +365,7 @@ class StoreLicenseParser:
 		for key in keys:
 			objStr = self.features[key].JSONExpression()
 			jsonStr += objStr
-			if key is not keys[-1]:
+			if key != keys[-1]:
 				jsonStr += ','
 		jsonStr += ']}'
 		jsonObj = json.loads(jsonStr)
@@ -344,12 +375,12 @@ class StoreLicenseParser:
 	# upload internal structure to google doc
 	#
 	def UploadSheet(self, isFullSync):
-		print "TODO!!"
 		self._UpdateDefaultSheet(isFullSync)
 		self._UpdatePlatformSheet(isFullSync)
 		self._UpdateNotesSheet(isFullSync)
-		# TODO: do all locales
-		#self._UpdateLocalizedSheet(isFullSync, lang)
+		for key in self.sheets:
+			if key not in self.knownSheets:
+				self._UpdateLocalizedSheet(isFullSync, key)
 
 	#
 	# update sheet from local data: for default sheet
@@ -359,19 +390,16 @@ class StoreLicenseParser:
 
 		existing_feature_list = []
 		for i, entry in enumerate(feed.entry):
-			existing_feature_list.append(
-				unicode(entry.custom['title'].text))
-			strTitle = unicode(entry.custom['title'].text)
+			existing_feature_list.append(unicode(entry.custom['title'].text))
 
 		#
 		# removing unexisting entries
 		if isFullSync:
 			removing_item_set = set(existing_feature_list) - set(self.features.keys())
-			print "deleting {0}".format(removing_item_set)
 			for feature in removing_item_set:
 				for i, entry in enumerate(feed.entry):
-					if feature is entry.custom['title'].text:
-						print 'Removing item:{0}'.format(feature)
+					if feature == unicode(entry.custom['title'].text):
+						print '[Default]: Removing item:{0}'.format(feature)
 						self.gd_client.DeleteRow(entry)
 
 		#
@@ -388,10 +416,9 @@ class StoreLicenseParser:
 				isDirty |= ( entry.custom['description'].text != newData['description'] )
 				isDirty |= ( entry.custom['category'].text != newData['category'] )
 				if isDirty:
-					print "Updating:{0}".format(strTitle)
+					print "[Default]: Updating:{0}".format(strTitle)
 					self.gd_client.UpdateRow(entry,newData)
 			except KeyError:
-				print 'Object for "{0}" not found.'.format(strTitle)
 				pass  # don't worry if strTitle is not found
 
 		#
@@ -406,9 +433,11 @@ class StoreLicenseParser:
 				newData['category'] 	= obj.category
 				entry = self.gd_client.InsertRow(newData, self.doc_key, self.sheets['default'])
 				if not isinstance(entry, gdata.spreadsheet.SpreadsheetsList):
-					print 'Error: Failed to add {0}'.format(feature)
+					print '[Default]: Error: Failed to add {0}'.format(feature)
+				else:
+					print '[Default]: Adding:{0}'.format(feature)
 			except KeyError:
-				print 'FATAL: Object for "{0}" not found.'.format(feature)
+				print '[Default]: FATAL: Object for "{0}" not found.'.format(feature)
 				pass  # don't worry if strTitle is not found
 
 
@@ -416,108 +445,199 @@ class StoreLicenseParser:
 	# update sheet from local data: for platform
 	#
 	def _UpdatePlatformSheet(self, isFullSync):
-		feed = self.gd_client.GetListFeed(
-			self.doc_key, self.sheets['platform'])
-		print "TODO!"
+		feed = self.gd_client.GetListFeed(self.doc_key, self.sheets['platform'])
 
-		# for i, entry in enumerate(feed.entry):
-		# 	ref_title = ''
-		# 	plaf_dic = {}
+		existing_feature_list = []
+		for i, entry in enumerate(feed.entry):
+			existing_feature_list.append(unicode(entry.custom['ref-title'].text))
 
-		# 	if isinstance(feed, gdata.spreadsheet.SpreadsheetsListFeed):
-		# 		for key in entry.custom:
-		# 			s = unicode(entry.custom[key].text.strip())
-		# 			if key == 'ref-title':
-		# 				ref_title = s
-		# 			else :
-		# 				plaf_dic[key] = ( s == 'check' )
+		#
+		# removing unexisting entries
+		if isFullSync:
+			removing_item_set = set(existing_feature_list) - set(self.features.keys())
+			for feature in removing_item_set:
+				for i, entry in enumerate(feed.entry):
+					if feature == unicode(entry.custom['ref-title'].text):
+						print '[Platform]: Removing item:{0}'.format(feature)
+						self.gd_client.DeleteRow(entry)
 
-		# 	try:
-		# 		obj = self.features[ ref_title ]
-		# 		obj.platform = plaf_dic
-		# 	except KeyError:
-		# 		print "key '{0}' not found:".format(ref_title)
+		#
+		# modifying existing entries with local data
+		for i, entry in enumerate(feed.entry):
+			strTitle = unicode(entry.custom['ref-title'].text)
+			try:
+				obj = self.features[strTitle]
+				newData = {}
+				isDirty = False
+				for key in StoreLicenseInfo.knownPlatforms:
+					newData[key] = 'check' if obj.platform[key] else ''
+					isDirty |= (entry.custom[key].text == 'check') != obj.platform[key]
+				newData['ref-title'] = obj.title[StoreLicenseInfo.default_locale]
+				if isDirty:
+					print "[Platform]: Updating:{0}".format(strTitle)
+					self.gd_client.UpdateRow(entry,newData)
+			except KeyError:
+				pass  # don't worry if strTitle is not found
+
+		#
+		# adding new entries only exist in local data
+		new_item_set = set(self.features.keys()) - set(existing_feature_list)
+		for feature in new_item_set:
+			try:
+				obj = self.features[feature]
+				newData = {}
+				isDirty = False
+				for key in StoreLicenseInfo.knownPlatforms:
+					newData[key] = 'check' if obj.platform[key] else ''
+					isDirty |= (entry.custom[key].text == 'check') != obj.platform[key]
+				newData['ref-title'] = obj.title[StoreLicenseInfo.default_locale]
+				entry = self.gd_client.InsertRow(newData, self.doc_key, self.sheets['platform'])
+				if not isinstance(entry, gdata.spreadsheet.SpreadsheetsList):
+					print '[Platform]: Error: Failed to add {0}'.format(feature)
+				else:
+					print '[Platform]: Adding:{0}'.format(feature)
+			except KeyError:
+				print '[Platform]: FATAL: Object for "{0}" not found.'.format(feature)
+				pass  # don't worry if strTitle is not found
+
 
 	#
 	# update sheet from local data: for notes
 	#
 	def _UpdateNotesSheet(self, isFullSync):
 		feed = self.gd_client.GetListFeed(self.doc_key, self.sheets['notes'])
-		print "TODO!"
 
-		# for i, entry in enumerate(feed.entry):
-		# 	ref_title = ''
-		# 	note_dic = {}
+		existing_feature_list = []
+		for i, entry in enumerate(feed.entry):
+			existing_feature_list.append(unicode(entry.custom['ref-title'].text))
 
-		# 	if isinstance(feed, gdata.spreadsheet.SpreadsheetsListFeed):
-		# 		for key in entry.custom:
-		# 			s = unicode(entry.custom[key].text)
-		# 			if key == 'ref-title':
-		# 				ref_title = s
-		# 			else :
-		# 				note_dic[key] = s
+		#
+		# removing unexisting entries
+		if isFullSync:
+			removing_item_set = set(existing_feature_list) - set(self.features.keys())
+			for feature in removing_item_set:
+				for i, entry in enumerate(feed.entry):
+					if feature == unicode(entry.custom['ref-title'].text):
+						print '[Notes]: Removing item:{0}'.format(feature)
+						self.gd_client.DeleteRow(entry)
 
-		# 	try:
-		# 		obj = self.features[ ref_title ]
-		# 		obj.notes = note_dic
-		# 	except KeyError:
-		# 		print "key '{0}' not found:".format(ref_title)
+		#
+		# modifying existing entries with local data
+		for i, entry in enumerate(feed.entry):
+			strTitle = unicode(entry.custom['ref-title'].text)
+			try:
+				obj = self.features[strTitle]
+				newData = {}
+				isDirty = False
+				for key in StoreLicenseInfo.knownPlatforms:
+					newData[key] = obj.notes[key]
+					isDirty |= entry.custom[key].text != newData[key]
+				newData['ref-title'] = obj.title[StoreLicenseInfo.default_locale]
+				if isDirty:
+					print "[Notes]: Updating:{0}".format(strTitle)
+					self.gd_client.UpdateRow(entry,newData)
+			except KeyError:
+				pass  # don't worry if strTitle is not found
+
+		#
+		# adding new entries only exist in local data
+		new_item_set = set(self.features.keys()) - set(existing_feature_list)
+		for feature in new_item_set:
+			try:
+				obj = self.features[feature]
+				newData = {}
+				isDirty = False
+				for key in StoreLicenseInfo.knownPlatforms:
+					newData[key] = obj.notes[key]
+					isDirty |= entry.custom[key].text != newData[key]
+				newData['ref-title'] = obj.title[StoreLicenseInfo.default_locale]
+				entry = self.gd_client.InsertRow(newData, self.doc_key, self.sheets['notes'])
+				if not isinstance(entry, gdata.spreadsheet.SpreadsheetsList):
+					print '[Notes]: Error: Failed to add {0}'.format(feature)
+				else:
+					print '[Notes]: Adding:{0}'.format(feature)
+			except KeyError:
+				print '[Notes]: FATAL: Object for "{0}" not found.'.format(feature)
+				pass  # don't worry if strTitle is not found
 
 	#
 	# update sheet from local data: for localization
 	#
 	def _UpdateLocalizedSheet(self, isFullSync, lang):
 		feed = self.gd_client.GetListFeed(self.doc_key, self.sheets[lang])
-		print "TODO!"
 
-		# for i, entry in enumerate(feed.entry):
-		# 	ref_title = ''
-		# 	localized_title = ''
-		# 	localized_desc = ''
+		existing_feature_list = []
+		for i, entry in enumerate(feed.entry):
+			existing_feature_list.append(unicode(entry.custom['ref-title'].text))
 
-		# 	if isinstance(feed, gdata.spreadsheet.SpreadsheetsListFeed):
-		# 		for key in entry.custom:
-		# 			s = unicode(entry.custom[key].text)
-		# 			if key == 'ref-title':
-		# 				ref_title = s
-		# 			elif key == 'title':
-		# 				localized_title = s
-		# 			elif key == 'description':
-		# 				localized_desc = s
+		#
+		# removing unexisting entries
+		if isFullSync:
+			removing_item_set = set(existing_feature_list) - set(self.features.keys())
+			for feature in removing_item_set:
+				for i, entry in enumerate(feed.entry):
+					if feature == unicode(entry.custom['ref-title'].text):
+						print '[Localization({0})]: Removing item:{1}'.format(lang, feature)
+						self.gd_client.DeleteRow(entry)
 
-		# 	try:
-		# 		obj = self.features[ ref_title ]
-		# 		obj.title[lang] = localized_title
-		# 		obj.description[lang] = localized_desc
-		# 	except KeyError:
-		# 		print "key '{0}' not found:".format(ref_title)
+		#
+		# modifying existing entries with local data
+		for i, entry in enumerate(feed.entry):
+			strTitle = unicode(entry.custom['ref-title'].text)
+			try:
+				obj = self.features[strTitle]
+				newData = {}
+				isDirty = False
 
+				try:
+					newData['title'] 	= obj.title[lang]
+				except KeyError:
+					newData['title']	= entry.custom['title'].text
 
-	# def _ListInsertAction(self, row_data):
-	# 	entry = self.gd_client.InsertRow(self._StringToDictionary(row_data),
-	# 		self.doc_key, self.curr_wksht_id)
-	# 	if isinstance(entry, gdata.spreadsheet.SpreadsheetsList):
-	# 		print 'Inserted!'
+				try:
+					newData['description'] 	= obj.description[lang]
+				except KeyError:
+					newData['description']	= entry.custom['description'].text
 
-	# def _ListUpdateAction(self, index, row_data):
-	# 	self.list_feed = self.gd_client.GetListFeed(self.doc_key, self.curr_wksht_id)
-	# 	entry = self.gd_client.UpdateRow(
-	# 		self.list_feed.entry[string.atoi(index)],
-	# 		self._StringToDictionary(row_data))
-	# 	if isinstance(entry, gdata.spreadsheet.SpreadsheetsList):
-	# 		print 'Updated!'
+				newData['ref-title'] 	= obj.title[StoreLicenseInfo.default_locale]
 
-	# def _ListDeleteAction(self, index):
-	# 	self.list_feed = self.gd_client.GetListFeed(self.doc_key, self.curr_wksht_id)
-	# 	self.gd_client.DeleteRow(self.list_feed.entry[string.atoi(index)])
-	# 	print 'Deleted!'
+				isDirty = ( entry.custom['title'].text != newData['title'] )
+				isDirty |= ( entry.custom['description'].text != newData['description'] )
 
-	# def _StringToDictionary(self, row_data):
-	# 	dict = {}
-	# 	for param in row_data.split():
-	# 		temp = param.split('=')
-	# 		dict[temp[0]] = temp[1]
-	# 		return dict
+				if isDirty:
+					print "[Localization({0})]: Updating:{1}".format(lang, strTitle)
+					self.gd_client.UpdateRow(entry,newData)
+			except KeyError:
+				pass  # don't worry if strTitle is not found
+
+		#
+		# adding new entries only exist in local data
+		new_item_set = set(self.features.keys()) - set(existing_feature_list)
+		for feature in new_item_set:
+			try:
+				obj = self.features[feature]
+				newData = {}
+				isDirty = False
+				try:
+					newData['title'] 	= obj.title[lang]
+				except KeyError:
+					newData['title']	= ''
+
+				try:
+					newData['description'] 	= obj.description[lang]
+				except KeyError:
+					newData['description']	= ''
+
+				newData['ref-title'] 	= obj.title[StoreLicenseInfo.default_locale]
+
+				entry = self.gd_client.InsertRow(newData, self.doc_key, self.sheets[lang])
+				if not isinstance(entry, gdata.spreadsheet.SpreadsheetsList):
+					print '[Localization({0})]: Error: Failed to add {1}'.format(lang, feature)
+				else:
+					print '[Localization({0})]: Adding:{1}'.format(lang, feature)
+			except KeyError:
+				print '[Localization({0})]: FATAL: Object for "{1}" not found.'.format(lang, feature)
+				pass  # don't worry if strTitle is not found
 
 
 def main():
