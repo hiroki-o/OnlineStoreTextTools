@@ -108,13 +108,10 @@ class StoreLicenseInfo:
 		for key in keys:
 			if key == self.default_locale:
 				out_string += u'"title" : "{0}",'.format(self.title[key])
-				out_string += u'"description" : "{0}"'.format(
-					self.description[key])
+				out_string += u'"description" : "{0}"'.format(self.description[key])
 			else:
-				out_string += u'"title_{0}" : "{1}",'.format(
-					key, self.title[key])
-				out_string += u'"description_{0}" : "{1}"'.format(
-					key, self.description[key])
+				out_string += u'"title_{0}" : "{1}",'.format(key, self.title[key])
+				out_string += u'"description_{0}" : "{1}"'.format(key, self.description[key])
 			if key != keys[-1]:
 				out_string += u','
 		return out_string
@@ -198,7 +195,7 @@ class StoreLicenseParser:
 		for i, entry in enumerate(feed.entry):
 			obj = StoreLicenseInfo()
 			for key in entry.custom:
-				s = unicode(entry.custom[key].text)
+				s = u'' if None == entry.custom[key].text else unicode(entry.custom[key].text)
 				if key == 'title':
 					obj.title[StoreLicenseInfo.default_locale] = s
 				elif key == 'description':
@@ -222,7 +219,7 @@ class StoreLicenseParser:
 			plaf_dic = {}
 
 			for key in entry.custom:
-				s = unicode(entry.custom[key].text)
+				s = u'' if None == entry.custom[key].text else unicode(entry.custom[key].text)
 				if key == 'ref-title':
 					ref_title = s
 				else:
@@ -250,7 +247,7 @@ class StoreLicenseParser:
 			note_dic = {}
 
 			for key in entry.custom:
-				s = unicode(entry.custom[key].text)
+				s = u'' if None == entry.custom[key].text else unicode(entry.custom[key].text)
 				if key == 'ref-title':
 					ref_title = s
 				else:
@@ -279,7 +276,7 @@ class StoreLicenseParser:
 			localized_desc = ''
 
 			for key in entry.custom:
-				s = unicode(entry.custom[key].text)
+				s = u'' if None == entry.custom[key].text else unicode(entry.custom[key].text)
 				if key == 'ref-title':
 					ref_title = s
 				elif key == 'title':
